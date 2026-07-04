@@ -2,8 +2,26 @@ import streamlit as st
 from hashtags import suggerer_hashtags
 from scheduler import obtenir_creneaux
 
-st.set_page_config(page_title="Amplificateur Viral - TikTok Booster", page_icon="🚀")
-
+st.set_page_config(page_title="Amplificateur Viral - TikTok Booster", page_icon="🚀", layout="centered")
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    .stButton button {
+        width: 100%;
+        height: 3em;
+        font-size: 1.1em;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 1.1em;
+        padding: 0.5em;
+    }
+</style>
+""", unsafe_allow_html=True)
 # Liste des codes d'accès valides (ajoute-en un nouveau pour chaque client)
 CODES_VALIDES = {
     "KABO2026",
