@@ -41,7 +41,7 @@ def obtenir_profil(user_id):
 
 def verifier_et_reinitialiser_compteur(profil):
     """Reinitialise le compteur mensuel si un mois s'est ecoule."""
-    dernier_reset = datetime.fromisoformat(profil["date_dernier_reset"].replace("Z", "+00:00"))
+    dernier_reset = datetime.fromisoformat(profil["date_dernier_reset"].replace("Z", "+00:00").split(".")[0] + "+00:00")
     maintenant = datetime.now(timezone.utc)
 
     if maintenant.month != dernier_reset.month or maintenant.year != dernier_reset.year:
