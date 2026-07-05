@@ -30,6 +30,31 @@ supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_K
 
 LIMITE_GRATUITE = 3
 
+# ============================================
+# Initialisation de l'etat de session
+# ============================================
+if "utilisateur" not in st.session_state:
+    st.session_state.utilisateur = None
+if "profil" not in st.session_state:
+    st.session_state.profil = None
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+if "refresh_token" not in st.session_state:
+    st.session_state.refresh_token = None
+
+# ============================================
+# Point cle de la correction :
+# Streamlit recharge tout le script a chaque interaction.
+# Sans ceci, Supabase "oublie" qui est connecte a chaque rechargement,
+# et bloque silencieusement la lecture du profil (securite RLS).
+# On restaure la session existante avant toute requete a la base.
+# ============================================
+if st.session_state.access_token and st.session_state.refresh_token:
+    try:
+        supabase.auth.set_session(st.session_state.access_token, st.session_state.refresh_token)
+    except Exception:
+        pass
+
 
 def parser_date_supabase(valeur_date):
     if not valeur_date:
@@ -43,17 +68,15 @@ def parser_date_supabase(valeur_date):
     except Exception:
         return datetime.now(timezone.utc)
 
+
 def obtenir_profil(user_id):
     try:
         reponse = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        st.write("DEBUG - reponse brute:", reponse.data)
         if reponse.data and len(reponse.data) > 0:
             return reponse.data[0]
-        else:
-            st.error("DEBUG: aucune ligne retournee pour cet id")
-            return None
+        return None
     except Exception as e:
-        st.error(f"DEBUG erreur profil : {e}")
+        st.error(f"Erreur lors de la récupération du profil : {e}")
         return None
 
 
@@ -83,14 +106,12 @@ def incrementer_utilisation(user_id, valeur_actuelle):
         pass
 
 
-if "utilisateur" not in st.session_state:
-    st.session_state.utilisateur = None
-if "profil" not in st.session_state:
-    st.session_state.profil = None
-
 st.title("🚀 Amplificateur Viral")
 st.subheader("Outil d'aide à la croissance TikTok")
 
+# ============================================
+# Connexion / Inscription
+# ============================================
 if st.session_state.utilisateur is None:
     st.markdown("---")
     onglet_connexion, onglet_inscription = st.tabs(["Se connecter", "Créer un compte"])
@@ -104,6 +125,14 @@ if st.session_state.utilisateur is None:
             else:
                 try:
                     resultat = supabase.auth.sign_in_with_password({"email": email, "password": mot_de_passe})
+
+                    # On sauvegarde les tokens pour les reutiliser a chaque rechargement
+                    st.session_state.access_token = resultat.session.access_token
+                    st.session_state.refresh_token = resultat.session.refresh_token
+
+                    # On force le client a utiliser cette session immediatement
+                    supabase.auth.set_session(resultat.session.access_token, resultat.session.refresh_token)
+
                     profil = obtenir_profil(resultat.user.id)
                     if profil is None:
                         st.error("Compte trouvé mais profil introuvable. Contacte le support.")
@@ -112,7 +141,7 @@ if st.session_state.utilisateur is None:
                         st.session_state.profil = profil
                         st.rerun()
                 except Exception as e:
-                    st.error(f"Connexion impossible : email ou mot de passe incorrect.")
+                    st.error("Connexion impossible : email ou mot de passe incorrect.")
                     with st.expander("Détails techniques (pour le support)"):
                         st.code(str(e))
 
@@ -138,6 +167,9 @@ if st.session_state.utilisateur is None:
 
     st.stop()
 
+# ============================================
+# Utilisateur connecte
+# ============================================
 profil = verifier_et_reinitialiser_compteur(st.session_state.profil)
 est_premium = profil.get("statut_abonnement") == "premium"
 utilisees = profil.get("analyses_utilisees_ce_mois", 0) or 0
@@ -154,6 +186,8 @@ with col2:
             pass
         st.session_state.utilisateur = None
         st.session_state.profil = None
+        st.session_state.access_token = None
+        st.session_state.refresh_token = None
         st.rerun()
 
 if est_premium:
