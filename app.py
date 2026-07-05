@@ -43,12 +43,17 @@ def parser_date_supabase(valeur_date):
     except Exception:
         return datetime.now(timezone.utc)
 
-
 def obtenir_profil(user_id):
     try:
-        reponse = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
-        return reponse.data
-    except Exception:
+        reponse = supabase.table("profiles").select("*").eq("id", user_id).execute()
+        st.write("DEBUG - reponse brute:", reponse.data)
+        if reponse.data and len(reponse.data) > 0:
+            return reponse.data[0]
+        else:
+            st.error("DEBUG: aucune ligne retournee pour cet id")
+            return None
+    except Exception as e:
+        st.error(f"DEBUG erreur profil : {e}")
         return None
 
 
