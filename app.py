@@ -3,6 +3,7 @@ from hashtags import suggerer_hashtags
 from scheduler import obtenir_creneaux
 from supabase import create_client
 from datetime import datetime, timezone
+import re
 
 st.set_page_config(page_title="Amplificateur Viral - TikTok Booster", page_icon="🚀", layout="centered")
 st.markdown("""
@@ -25,45 +26,58 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================
-# Connexion a Supabase (cles stockees dans .streamlit/secrets.toml)
-# ============================================
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
 
 LIMITE_GRATUITE = 3
 
 
+def parser_date_supabase(valeur_date):
+    if not valeur_date:
+        return datetime.now(timezone.utc)
+    try:
+        nettoye = re.sub(r"\.\d+", "", valeur_date)
+        nettoye = nettoye.replace("Z", "+00:00")
+        if "+" not in nettoye:
+            nettoye += "+00:00"
+        return datetime.fromisoformat(nettoye)
+    except Exception:
+        return datetime.now(timezone.utc)
+
+
 def obtenir_profil(user_id):
-    """Recupere le profil utilisateur depuis Supabase."""
-    reponse = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
-    return reponse.data
+    try:
+        reponse = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
+        return reponse.data
+    except Exception:
+        return None
 
 
 def verifier_et_reinitialiser_compteur(profil):
-    """Reinitialise le compteur mensuel si un mois s'est ecoule."""
-    dernier_reset = datetime.fromisoformat(profil["date_dernier_reset"].replace("Z", "+00:00").split(".")[0] + "+00:00")
+    dernier_reset = parser_date_supabase(profil.get("date_dernier_reset"))
     maintenant = datetime.now(timezone.utc)
 
     if maintenant.month != dernier_reset.month or maintenant.year != dernier_reset.year:
-        supabase.table("profiles").update({
-            "analyses_utilisees_ce_mois": 0,
-            "date_dernier_reset": maintenant.isoformat(),
-        }).eq("id", profil["id"]).execute()
+        try:
+            supabase.table("profiles").update({
+                "analyses_utilisees_ce_mois": 0,
+                "date_dernier_reset": maintenant.isoformat(),
+            }).eq("id", profil["id"]).execute()
+        except Exception:
+            pass
         profil["analyses_utilisees_ce_mois"] = 0
 
     return profil
 
 
 def incrementer_utilisation(user_id, valeur_actuelle):
-    """Incremente le compteur d'analyses utilisees."""
-    supabase.table("profiles").update({
-        "analyses_utilisees_ce_mois": valeur_actuelle + 1
-    }).eq("id", user_id).execute()
+    try:
+        supabase.table("profiles").update({
+            "analyses_utilisees_ce_mois": valeur_actuelle + 1
+        }).eq("id", user_id).execute()
+    except Exception:
+        pass
 
 
-# ============================================
-# Initialisation de l'etat de session
-# ============================================
 if "utilisateur" not in st.session_state:
     st.session_state.utilisateur = None
 if "profil" not in st.session_state:
@@ -72,56 +86,67 @@ if "profil" not in st.session_state:
 st.title("🚀 Amplificateur Viral")
 st.subheader("Outil d'aide à la croissance TikTok")
 
-# ============================================
-# Connexion / Inscription
-# ============================================
 if st.session_state.utilisateur is None:
     st.markdown("---")
     onglet_connexion, onglet_inscription = st.tabs(["Se connecter", "Créer un compte"])
 
     with onglet_connexion:
-        email = st.text_input("Email", key="email_connexion")
+        email = st.text_input("Email", key="email_connexion").strip()
         mot_de_passe = st.text_input("Mot de passe", type="password", key="mdp_connexion")
         if st.button("Se connecter"):
-            try:
-                resultat = supabase.auth.sign_in_with_password({"email": email, "password": mot_de_passe})
-                st.session_state.utilisateur = resultat.user
-                st.session_state.profil = obtenir_profil(resultat.user.id)
-                st.rerun()
-            except Exception as e:
-                st.error("Email ou mot de passe incorrect.")
+            if not email or not mot_de_passe:
+                st.error("Merci de remplir l'email et le mot de passe.")
+            else:
+                try:
+                    resultat = supabase.auth.sign_in_with_password({"email": email, "password": mot_de_passe})
+                    profil = obtenir_profil(resultat.user.id)
+                    if profil is None:
+                        st.error("Compte trouvé mais profil introuvable. Contacte le support.")
+                    else:
+                        st.session_state.utilisateur = resultat.user
+                        st.session_state.profil = profil
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Connexion impossible : email ou mot de passe incorrect.")
+                    with st.expander("Détails techniques (pour le support)"):
+                        st.code(str(e))
 
     with onglet_inscription:
-        nom = st.text_input("Nom complet", key="nom_inscription")
-        email_i = st.text_input("Email", key="email_inscription")
+        nom = st.text_input("Nom complet", key="nom_inscription").strip()
+        email_i = st.text_input("Email", key="email_inscription").strip()
         mdp_i = st.text_input("Mot de passe", type="password", key="mdp_inscription")
         if st.button("Créer mon compte"):
-            try:
-                resultat = supabase.auth.sign_up({
-                    "email": email_i,
-                    "password": mdp_i,
-                    "options": {"data": {"nom_complet": nom}}
-                })
-                st.success("Compte créé ! Tu peux maintenant te connecter.")
-            except Exception as e:
-                st.error(f"Erreur lors de la création du compte : {e}")
+            if not email_i or not mdp_i:
+                st.error("Merci de remplir tous les champs.")
+            elif len(mdp_i) < 6:
+                st.error("Le mot de passe doit contenir au moins 6 caractères.")
+            else:
+                try:
+                    supabase.auth.sign_up({
+                        "email": email_i,
+                        "password": mdp_i,
+                        "options": {"data": {"nom_complet": nom}}
+                    })
+                    st.success("✅ Compte créé ! Tu peux maintenant te connecter dans l'onglet 'Se connecter'.")
+                except Exception as e:
+                    st.error(f"Erreur lors de la création du compte : {e}")
 
     st.stop()
 
-# ============================================
-# Utilisateur connecte : rafraichir le profil et le compteur
-# ============================================
 profil = verifier_et_reinitialiser_compteur(st.session_state.profil)
-est_premium = profil["statut_abonnement"] == "premium"
-utilisees = profil["analyses_utilisees_ce_mois"]
+est_premium = profil.get("statut_abonnement") == "premium"
+utilisees = profil.get("analyses_utilisees_ce_mois", 0) or 0
 restantes = max(0, LIMITE_GRATUITE - utilisees)
 
 col1, col2 = st.columns([3, 1])
 with col1:
-    st.markdown(f"Connecté en tant que **{profil.get('nom_complet') or profil['email']}**")
+    st.markdown(f"Connecté en tant que **{profil.get('nom_complet') or profil.get('email')}**")
 with col2:
     if st.button("Déconnexion"):
-        supabase.auth.sign_out()
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
         st.session_state.utilisateur = None
         st.session_state.profil = None
         st.rerun()
